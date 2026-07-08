@@ -1,0 +1,57 @@
+name: auto-update-typhoon-data
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '20 */6 * * *'
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and parse JTWC warning
+        run: |
+          python3 - <<'EOF'
+          import re, json, urllib.request, datetime
+          url = 'https://www.metoc.navy.mil/jtwc/products/wp0926web.txt'
+          req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0'})
+          txt = urllib.request.urlopen(req, timeout=60).read().decode('utf-8', 'ignore')
+          now = datetime.datetime.now(datetime.timezone.utc)
+          def ts(s):
+              day, hh = int(s[:2]), int(s[2:4])
+              m, y = now.month, now.year
+              if day - now.day > 15:
+                  m -= 1
+                  if m == 0: m, y = 12, y - 1
+              return f'{y}-{m:02d}-{day:02d}T{hh:02d}:00Z'
+          nr = re.search(r'WARNING NR (\d+)', txt)
+          blocks = re.findall(r'(\d{6})Z --- (?:NEAR )?(\d+\.\d)N (\d+\.\d)E(.*?)(?=\d{6}Z ---|REMARKS)', txt, re.S)
+          pts = []
+          for t, la, lo, rest in blocks:
+              w = re.search(r'MAX SUSTAINED WINDS - (\d+) KT', rest)
+              if not w: continue
+              radii = [int(x) for x in re.findall(r'(\d+) NM \w+ QUADRANT', rest)]
+              r7 = round(max(radii) * 1.852) if radii else 300
+              pts.append({'t': ts(t), 'lat': float(la), 'lon': float(lo),
+                          'wind': round(int(w.group(1)) * 1.852), 'r7': r7})
+          if len(pts) < 3:
+              raise SystemExit('parse failed, keep old data')
+          d = json.load(open('data.json', encoding='utf-8'))
+          d['fcst']['jtwc']['pts'] = pts
+          d['fcst']['jtwc']['issued'] = f'JTWC 第{nr.group(1)}報 {pts[0]["t"]} (官方數值，自動更新)'
+          obs = d['obs']
+          if pts[0]['t'] > obs[-1]['t']:
+              obs.append(pts[0])
+          tw = now + datetime.timedelta(hours=8)
+          d['updated'] = tw.strftime('%m/%d %H:%M 台灣時間 自動更新 (JTWC)')
+          json.dump(d, open('data.json', 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+          print('updated to warning', nr.group(1))
+          EOF
+      - name: Commit if changed
+        run: |
+          git config user.name 'typhoon-bot'
+          git config user.email 'bot@users.noreply.github.com'
+          git add data.json
+          git diff --cached --quiet || git commit -m 'auto: update JTWC track data'
+          git push
