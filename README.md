@@ -18,6 +18,14 @@
 3. 到 repo 的 **Settings → Pages** → Source 選 `Deploy from a branch`，Branch 選 `main`、資料夾 `/ (root)` → Save
 4. 等 1–2 分鐘，網址就是 `https://你的帳號.github.io/bavi-typhoon/`，傳給朋友即可
 
+## 自動更新
+
+路徑資料在 `data.json`，網頁載入時自動讀取。`.github/workflows/update.yml` 是自動更新機器人：
+
+- **自動**：每 6 小時抓一次 JTWC 最新官方報文，解析後更新 `data.json` 並自動 commit
+- **手動按鈕**：到 repo 的 **Actions → auto-update-typhoon-data → Run workflow**，按一下即可立即更新
+- 限制：只有 JTWC 能自動更新（唯一有穩定機器可讀的文字報文）；JMA / CWA / CMA / ECMWF 需手動編輯 `data.json`
+
 ## 資料來源與注意事項
 
 - JTWC：第 25 報（2026-07-07 03Z），官方數值預報

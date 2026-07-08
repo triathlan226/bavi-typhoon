@@ -10,7 +10,6 @@
   html, body { height:100%; font-family:-apple-system,"PingFang TC","Microsoft JhengHei",sans-serif; overflow:hidden; }
   #map { position:absolute; inset:0; z-index:1; background:#0d1b2a; }
 
-  /* 上方資訊卡 */
   #infoCard {
     position:absolute; top:10px; left:50%; transform:translateX(-50%);
     z-index:1000; background:rgba(13,27,42,.88); color:#fff;
@@ -22,8 +21,9 @@
   #infoCard h1 span { color:#ffd166; }
   #statusLine { font-size:13px; margin-top:4px; color:#cde; }
   #statusLine b { color:#fff; }
+  #modeTag { display:inline-block; font-size:11px; padding:1px 8px; border-radius:10px; margin-left:6px; }
+  .obsTag { background:#2a9d8f; } .fcTag { background:#e76f51; }
 
-  /* 顯示/隱藏 路徑線 chips */
   #agencyBar {
     position:absolute; top:86px; left:50%; transform:translateX(-50%);
     z-index:1000; display:flex; gap:6px; flex-wrap:wrap; justify-content:center;
@@ -38,7 +38,6 @@
   .chip.off { opacity:.35; }
   .chip .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; }
 
-  /* 下方控制列 */
   #controls {
     position:absolute; left:50%; transform:translateX(-50%); bottom:14px;
     z-index:1000; background:rgba(13,27,42,.9); color:#fff;
@@ -65,9 +64,7 @@
     font-size:12px; padding:6px 9px; cursor:pointer; flex:none;
   }
   #timeLabel { text-align:center; font-size:12px; color:#9fb3c8; margin-top:5px; }
-  #srcNote {
-    text-align:center; font-size:10px; color:#7a8ea3; margin-top:6px; line-height:1.5;
-  }
+  #srcNote { text-align:center; font-size:10px; color:#7a8ea3; margin-top:6px; line-height:1.5; }
   #srcNote a { color:#9fc2e8; }
 
   .tyIcon { pointer-events:none; }
@@ -84,7 +81,7 @@
 
 <div id="infoCard">
   <h1>🌀 強烈颱風 <span>巴威 BAVI</span>（2026 第9號）</h1>
-  <div id="statusLine">載入中…</div>
+  <div id="statusLine">載入資料中…</div>
 </div>
 
 <div id="agencyBar"></div>
@@ -98,101 +95,93 @@
   </div>
   <div id="timeLabel"></div>
   <div id="srcNote">
-    資料：JTWC 第25報(7/7 11時) ‧ 日本氣象廳(7/7 晨) ‧ 中央氣象署/中央氣象台(7/6–7/7 發布) ‧ ECMWF 模式(Windy)<br>
-    ⚠ 非官方產品，僅供參考；CWA 與 CMA 路徑係依官方文字描述近似繪製。防災請以
+    <span id="updatedLine">資料載入中…</span><br>
+    ⚠ 非官方產品，僅供參考；標「示意」之路徑係依官方文字描述近似繪製。防災請以
     <a href="https://www.cwa.gov.tw/V8/C/P/Typhoon/TY_NEWS.html" target="_blank">中央氣象署</a> 為準
   </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-/* ================= 資料區 =================
-   時間皆為 UTC；顯示時轉為台灣時間 (UTC+8)
-   動畫自 2026-07-07 12:00 台灣時間 (04Z) 開始
-   wind = 近中心最大風速概略 (km/h)，r7 = 七級風暴風半徑概略 (km) */
+/* ============================================================
+   資料：優先讀取同目錄 data.json（GitHub Actions 每 6 小時
+   自動更新 JTWC 部分）；讀不到時使用下方內建備份資料。
+   時間皆為 UTC；顯示時轉為台灣時間 (UTC+8)。
+   ============================================================ */
 
-const START = Date.parse('2026-07-07T04:00Z');   // 7/7 中午 12:00 台灣時間
-
-// 目前位置（7/7 11時 台灣時間，JTWC 定位）
-const NOW_POS = {lat:16.3, lon:139.2};
-
-// 各國預測路徑
-const FCST = {
- jtwc: {
-   name:'美軍 JTWC', color:'#4dabf7', approx:false,
-   issued:'7/7 03Z 第25報 (官方數值)',
+const FALLBACK = {
+ updated: "內建備份資料 (2026-07-08)",
+ start: "2026-07-07T04:00Z",
+ obs: [
+  {t:"2026-07-07T03:00Z", lat:16.3, lon:139.2, wind:232, r7:350},
+  {t:"2026-07-07T06:00Z", lat:16.5, lon:138.4, wind:209, r7:350},
+  {t:"2026-07-07T18:00Z", lat:16.8, lon:135.3, wind:241, r7:350},
+  {t:"2026-07-07T21:00Z", lat:16.9, lon:134.7, wind:241, r7:350}
+ ],
+ fcst: {
+  jtwc:{name:"美軍 JTWC", color:"#4dabf7", approx:false, issued:"7/8 05時 第28報 (官方數值)",
    pts:[
-     {t:'2026-07-07T03:00Z', lat:16.3, lon:139.2, wind:232, r7:350},
-     {t:'2026-07-07T12:00Z', lat:16.6, lon:137.1, wind:241, r7:350},
-     {t:'2026-07-08T00:00Z', lat:17.0, lon:134.3, wind:241, r7:350},
-     {t:'2026-07-08T12:00Z', lat:17.6, lon:132.2, wind:232, r7:360},
-     {t:'2026-07-09T00:00Z', lat:18.6, lon:130.2, wind:213, r7:370},
-     {t:'2026-07-09T12:00Z', lat:19.8, lon:128.5, wind:204, r7:370},
-     {t:'2026-07-10T00:00Z', lat:21.4, lon:126.9, wind:194, r7:360},
-     {t:'2026-07-11T00:00Z', lat:25.3, lon:123.2, wind:167, r7:340},
-     {t:'2026-07-12T00:00Z', lat:29.4, lon:119.0, wind:93,  r7:250}
+    {t:"2026-07-07T18:00Z", lat:16.8, lon:135.3, wind:241, r7:350},
+    {t:"2026-07-08T06:00Z", lat:17.1, lon:132.9, wind:241, r7:350},
+    {t:"2026-07-08T18:00Z", lat:17.7, lon:130.9, wind:232, r7:360},
+    {t:"2026-07-09T06:00Z", lat:18.8, lon:129.1, wind:222, r7:370},
+    {t:"2026-07-09T18:00Z", lat:20.1, lon:127.5, wind:213, r7:370},
+    {t:"2026-07-10T06:00Z", lat:21.9, lon:125.8, wind:204, r7:370},
+    {t:"2026-07-10T18:00Z", lat:23.8, lon:123.9, wind:194, r7:350},
+    {t:"2026-07-11T18:00Z", lat:27.8, lon:119.8, wind:111, r7:280},
+    {t:"2026-07-12T18:00Z", lat:31.7, lon:116.7, wind:46,  r7:150}
    ]},
- jma: {
-   name:'日本 JMA', color:'#ff6b6b', approx:false,
-   issued:'7/7 06時JST 官方預報 (預報圓中心)',
+  jma:{name:"日本 JMA", color:"#ff6b6b", approx:false, issued:"7/8 官方預報 (預報圓中心；7/9 一點為內插)",
    pts:[
-     {t:'2026-07-07T03:00Z', lat:16.3, lon:139.2, wind:198, r7:350},
-     {t:'2026-07-07T09:00Z', lat:16.4, lon:137.5, wind:198, r7:350},
-     {t:'2026-07-07T21:00Z', lat:16.8, lon:134.8, wind:205, r7:360},
-     {t:'2026-07-08T18:00Z', lat:18.0, lon:130.9, wind:198, r7:370},
-     {t:'2026-07-09T18:00Z', lat:21.3, lon:126.5, wind:180, r7:360},
-     {t:'2026-07-10T18:00Z', lat:25.4, lon:122.5, wind:162, r7:340}
+    {t:"2026-07-07T21:00Z", lat:16.9, lon:134.7, wind:180, r7:350},
+    {t:"2026-07-08T06:00Z", lat:17.0, lon:133.1, wind:180, r7:350},
+    {t:"2026-07-09T06:00Z", lat:18.7, lon:129.8, wind:180, r7:360},
+    {t:"2026-07-10T06:00Z", lat:22.2, lon:126.1, wind:180, r7:360},
+    {t:"2026-07-11T06:00Z", lat:26.3, lon:121.8, wind:162, r7:340}
    ]},
- cwa: {
-   name:'台灣 CWA', color:'#51cf66', approx:true,
-   issued:'依 7/6–7/7 氣象署說明近似繪製（示意）',
+  cwa:{name:"台灣 CWA", color:"#51cf66", approx:true, issued:"依 7/8 氣象署說明近似繪製（示意）",
    pts:[
-     {t:'2026-07-07T03:00Z', lat:16.3, lon:139.2, wind:216, r7:350},
-     {t:'2026-07-08T00:00Z', lat:17.0, lon:134.6, wind:216, r7:350},
-     {t:'2026-07-09T00:00Z', lat:18.5, lon:130.6, wind:205, r7:360},
-     {t:'2026-07-10T00:00Z', lat:21.2, lon:127.1, wind:190, r7:360},
-     {t:'2026-07-11T00:00Z', lat:25.2, lon:123.6, wind:170, r7:340},
-     {t:'2026-07-12T00:00Z', lat:28.8, lon:121.0, wind:110, r7:260}
+    {t:"2026-07-07T06:00Z", lat:16.5, lon:138.4, wind:209, r7:350},
+    {t:"2026-07-08T06:00Z", lat:17.1, lon:133.5, wind:209, r7:350},
+    {t:"2026-07-09T06:00Z", lat:18.9, lon:129.6, wind:200, r7:360},
+    {t:"2026-07-10T06:00Z", lat:21.6, lon:126.3, wind:190, r7:360},
+    {t:"2026-07-11T06:00Z", lat:25.0, lon:123.0, wind:175, r7:340},
+    {t:"2026-07-12T06:00Z", lat:28.3, lon:120.4, wind:100, r7:250}
    ]},
- cma: {
-   name:'中國 CMA', color:'#b197fc', approx:true,
-   issued:'依 7/6 16時中央氣象台文字預報近似繪製（示意）',
+  cma:{name:"中國 CMA", color:"#b197fc", approx:true, issued:"依 7/6 16時中央氣象台文字預報近似繪製（示意）",
    pts:[
-     {t:'2026-07-07T03:00Z', lat:16.3, lon:139.2, wind:223, r7:350},
-     {t:'2026-07-08T00:00Z', lat:17.0, lon:134.4, wind:223, r7:350},
-     {t:'2026-07-09T00:00Z', lat:18.2, lon:130.3, wind:212, r7:360},
-     {t:'2026-07-10T00:00Z', lat:20.8, lon:126.3, wind:195, r7:360},
-     {t:'2026-07-10T18:00Z', lat:23.2, lon:124.0, wind:180, r7:350},
-     {t:'2026-07-11T06:00Z', lat:25.4, lon:121.9, wind:165, r7:330},
-     {t:'2026-07-12T00:00Z', lat:27.3, lon:120.3, wind:100, r7:240}
+    {t:"2026-07-07T03:00Z", lat:16.3, lon:139.2, wind:223, r7:350},
+    {t:"2026-07-08T00:00Z", lat:17.0, lon:134.4, wind:223, r7:350},
+    {t:"2026-07-09T00:00Z", lat:18.2, lon:130.3, wind:212, r7:360},
+    {t:"2026-07-10T00:00Z", lat:20.8, lon:126.3, wind:195, r7:360},
+    {t:"2026-07-10T18:00Z", lat:23.2, lon:124.0, wind:180, r7:350},
+    {t:"2026-07-11T06:00Z", lat:25.4, lon:121.9, wind:165, r7:330},
+    {t:"2026-07-12T00:00Z", lat:27.3, lon:120.3, wind:100, r7:240}
    ]},
- ecmwf: {
-   name:'歐洲 ECMWF', color:'#f9c74f', approx:true,
-   issued:'依 Windy(ECMWF 模式) 畫面與模式報導近似繪製（示意，非官方預報）',
+  ecmwf:{name:"歐洲 ECMWF", color:"#f9c74f", approx:true, issued:"依 Windy(ECMWF 模式) 畫面近似繪製（示意）",
    pts:[
-     {t:'2026-07-07T03:00Z', lat:16.3, lon:139.2, wind:225, r7:350},
-     {t:'2026-07-08T00:00Z', lat:17.0, lon:134.5, wind:225, r7:350},
-     {t:'2026-07-09T00:00Z', lat:18.3, lon:130.4, wind:212, r7:360},
-     {t:'2026-07-10T00:00Z', lat:20.6, lon:126.6, wind:200, r7:360},
-     {t:'2026-07-10T16:00Z', lat:23.9, lon:122.9, wind:185, r7:350},
-     {t:'2026-07-11T06:00Z', lat:24.9, lon:121.7, wind:170, r7:330},
-     {t:'2026-07-12T00:00Z', lat:26.4, lon:119.9, wind:95,  r7:230}
+    {t:"2026-07-07T03:00Z", lat:16.3, lon:139.2, wind:225, r7:350},
+    {t:"2026-07-08T00:00Z", lat:17.0, lon:134.5, wind:225, r7:350},
+    {t:"2026-07-09T00:00Z", lat:18.3, lon:130.4, wind:212, r7:360},
+    {t:"2026-07-10T00:00Z", lat:20.6, lon:126.6, wind:200, r7:360},
+    {t:"2026-07-10T16:00Z", lat:23.9, lon:122.9, wind:185, r7:350},
+    {t:"2026-07-11T06:00Z", lat:24.9, lon:121.7, wind:170, r7:330},
+    {t:"2026-07-12T00:00Z", lat:26.4, lon:119.9, wind:95,  r7:230}
    ]}
+ }
 };
 
-/* ================= 地圖 ================= */
+/* ============ 地圖 ============ */
 const map = L.map('map', {zoomControl:false, attributionControl:true})
-  .setView([21.5, 130.5], (window.innerWidth < 500 ? 4 : 5));
+  .setView([21.5, 130.0], (window.innerWidth < 500 ? 4 : 5));
 L.control.zoom({position:'topright'}).addTo(map);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution:'&copy; OpenStreetMap &copy; CARTO',
-  subdomains:'abcd', maxZoom:10
+  attribution:'&copy; OpenStreetMap &copy; CARTO', subdomains:'abcd', maxZoom:10
 }).addTo(map);
-
 L.circleMarker([23.7,121.0],{radius:4,color:'#ffd166',fillColor:'#ffd166',fillOpacity:1})
  .addTo(map).bindTooltip('台灣',{permanent:true,direction:'left',className:'ptLabel',offset:[-6,0]});
 
-/* ============ 工具函式 ============ */
+/* ============ 工具 ============ */
 const P = t => Date.parse(t);
 const fmtTW = ms => {
   const d = new Date(ms + 8*3600e3);
@@ -214,140 +203,134 @@ function interpTrack(pts, ms){
   }
   return {...last};
 }
-function catName(w){   // 概略分級（km/h，混用 1 分鐘/10 分鐘值，僅供顯示）
+function catName(w){
   if (w>=184) return ['強烈颱風','#e63946'];
   if (w>=118) return ['中度颱風','#f77f00'];
   if (w>=62)  return ['輕度颱風','#fcbf49'];
   return ['熱帶性低氣壓','#8ecae6'];
 }
 
-/* ============ 靜態路徑繪製 ============ */
-// 目前位置標記
-L.circleMarker([NOW_POS.lat, NOW_POS.lon],
-  {radius:6,color:'#fff',weight:2,fillColor:'#ffd166',fillOpacity:1}).addTo(map)
-  .bindPopup(`<b>目前位置</b><br>7/7 11:00 台灣時間<br>16.3°N 139.2°E<br>強烈颱風｜934 hPa`);
+/* ============ 主程式（資料載入後執行） ============ */
+function init(DATA){
+  const OBS = DATA.obs, FCST = DATA.fcst;
+  const START = P(DATA.start);
+  const T_OBS_END = P(OBS[OBS.length-1].t);
+  const STEP = 3600e3;
+  document.getElementById('updatedLine').textContent = '資料更新：' + DATA.updated;
 
-// 各國預測線
-const agencyLayers = {};
-for (const [key,f] of Object.entries(FCST)){
-  const g = L.layerGroup();
-  L.polyline(f.pts.map(p=>[p.lat,p.lon]),
-    {color:f.color, weight:3, opacity:.95, dashArray:f.approx?'2 7':'8 6'}).addTo(g);
-  f.pts.forEach((p,i)=>{
-    if (i===0) return;
-    L.circleMarker([p.lat,p.lon],{radius:4.5,color:'#fff',weight:1,fillColor:f.color,fillOpacity:1})
-     .addTo(g)
-     .bindPopup(`<b>${f.name} 預測</b>${f.approx?'（示意）':''}<br>${fmtTW(P(p.t))}<br>風速約 ${p.wind} km/h<br><small>${f.issued}</small>`);
+  // 觀測路徑（白線）
+  L.polyline(OBS.map(p=>[p.lat,p.lon]),{color:'#fff',weight:2.5,opacity:.9}).addTo(map);
+  OBS.forEach(p=>{
+    const [cn,cc]=catName(p.wind);
+    L.circleMarker([p.lat,p.lon],{radius:3.5,color:cc,fillColor:cc,fillOpacity:1,weight:1})
+     .addTo(map)
+     .bindPopup(`<b>觀測</b> ${fmtTW(P(p.t))}<br>${cn}｜風速約 ${p.wind} km/h`);
   });
-  g.addTo(map);
-  agencyLayers[key]=g;
-}
 
-/* ============ 顯示/隱藏 路徑線 chips ============ */
-const bar = document.getElementById('agencyBar');
-for (const [key,f] of Object.entries(FCST)){
-  const c = document.createElement('div');
-  c.className='chip';
-  c.innerHTML=`<span class="dot" style="background:${f.color}"></span>${f.name}${f.approx?'*':''}`;
-  c.onclick=()=>{
-    const off=c.classList.toggle('off');
-    off ? map.removeLayer(agencyLayers[key]) : agencyLayers[key].addTo(map);
-  };
-  bar.appendChild(c);
-}
-
-/* ============ 動畫（可選擇跟隨哪一國） ============ */
-const STEP = 3600e3;                 // 每格 1 小時
-let followKey = 'jtwc';              // 預設跟隨 JTWC
-let T1, N;
-
-const slider = document.getElementById('slider');
-
-const tyIcon = L.divIcon({className:'tyIcon', iconSize:[46,46], iconAnchor:[23,23], html:
- `<svg class="tySpin" width="46" height="46" viewBox="0 0 46 46">
-    <g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round">
-      <path d="M23 6 C 34 6, 40 14, 39 23"/>
-      <path d="M23 40 C 12 40, 6 32, 7 23"/>
-    </g>
-    <circle cx="23" cy="23" r="7" fill="#fff"/>
-    <circle cx="23" cy="23" r="3.5" fill="#e63946"/>
-  </svg>`});
-const tyMarker = L.marker([NOW_POS.lat,NOW_POS.lon],{icon:tyIcon,zIndexOffset:1000}).addTo(map);
-const windCircle = L.circle([NOW_POS.lat,NOW_POS.lon],{radius:350e3,color:'#ffd166',weight:1,fillColor:'#ffd166',fillOpacity:.12}).addTo(map);
-const trail = L.polyline([],{color:'#ffd166',weight:3,opacity:.9}).addTo(map);
-
-const statusLine = document.getElementById('statusLine');
-const timeLabel  = document.getElementById('timeLabel');
-
-function setFollow(key){
-  followKey = key;
-  const f = FCST[key];
-  T1 = P(f.pts[f.pts.length-1].t);
-  N = Math.round((T1-START)/STEP);
-  slider.max = N;
-  trail.setStyle({color:f.color});
-  windCircle.setStyle({color:f.color, fillColor:f.color});
-  document.querySelectorAll('.fchip').forEach(el=>
-    el.classList.toggle('sel', el.dataset.key===key));
-  if (idx>N) idx=N;
-  slider.value=idx;
-  frame(idx);
-}
-
-function frame(i){
-  const ms = START + i*STEP;
-  const f = FCST[followKey];
-  const p = interpTrack(f.pts, ms);
-  tyMarker.setLatLng([p.lat,p.lon]);
-  windCircle.setLatLng([p.lat,p.lon]).setRadius(p.r7*1000);
-  const pts=[];
-  for(let k=0;k<=i;k+=2){
-    const q=interpTrack(f.pts, START+k*STEP);
-    pts.push([q.lat,q.lon]);
+  // 各國預測線
+  const agencyLayers = {};
+  for (const [key,f] of Object.entries(FCST)){
+    const g = L.layerGroup();
+    L.polyline(f.pts.map(p=>[p.lat,p.lon]),
+      {color:f.color, weight:3, opacity:.95, dashArray:f.approx?'2 7':'8 6'}).addTo(g);
+    f.pts.forEach((p,i)=>{
+      if (i===0) return;
+      L.circleMarker([p.lat,p.lon],{radius:4.5,color:'#fff',weight:1,fillColor:f.color,fillOpacity:1})
+       .addTo(g)
+       .bindPopup(`<b>${f.name} 預測</b>${f.approx?'（示意）':''}<br>${fmtTW(P(p.t))}<br>風速約 ${p.wind} km/h<br><small>${f.issued}</small>`);
+    });
+    g.addTo(map);
+    agencyLayers[key]=g;
   }
-  trail.setLatLngs(pts);
 
-  const [cn,cc]=catName(p.wind);
-  statusLine.innerHTML =
-    `<b style="color:${cc}">${cn}</b>｜風速約 <b>${p.wind}</b> km/h`+
-    `｜<span style="color:${f.color}">跟隨 ${f.name}${f.approx?'（示意）':''}</span>`;
-  timeLabel.textContent = fmtTW(ms) + '（預測，實際路徑可能不同）';
+  // 顯示/隱藏 chips
+  const bar = document.getElementById('agencyBar');
+  for (const [key,f] of Object.entries(FCST)){
+    const c = document.createElement('div');
+    c.className='chip';
+    c.innerHTML=`<span class="dot" style="background:${f.color}"></span>${f.name}${f.approx?'*':''}`;
+    c.onclick=()=>{
+      const off=c.classList.toggle('off');
+      off ? map.removeLayer(agencyLayers[key]) : agencyLayers[key].addTo(map);
+    };
+    bar.appendChild(c);
+  }
+
+  // 動畫
+  let followKey='jtwc', T1, N, idx=0, playing=false, speed=1, timer=null;
+  const slider = document.getElementById('slider');
+  const tyIcon = L.divIcon({className:'tyIcon', iconSize:[46,46], iconAnchor:[23,23], html:
+   `<svg class="tySpin" width="46" height="46" viewBox="0 0 46 46">
+      <g fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round">
+        <path d="M23 6 C 34 6, 40 14, 39 23"/><path d="M23 40 C 12 40, 6 32, 7 23"/>
+      </g>
+      <circle cx="23" cy="23" r="7" fill="#fff"/><circle cx="23" cy="23" r="3.5" fill="#e63946"/>
+    </svg>`});
+  const p0 = interpTrack(OBS, START);
+  const tyMarker = L.marker([p0.lat,p0.lon],{icon:tyIcon,zIndexOffset:1000}).addTo(map);
+  const windCircle = L.circle([p0.lat,p0.lon],{radius:350e3,color:'#ffd166',weight:1,fillColor:'#ffd166',fillOpacity:.12}).addTo(map);
+  const trail = L.polyline([],{color:'#ffd166',weight:3,opacity:.9}).addTo(map);
+  const statusLine=document.getElementById('statusLine'), timeLabel=document.getElementById('timeLabel');
+  const playBtn=document.getElementById('playBtn'), speedBtn=document.getElementById('speedBtn');
+
+  const posAt = ms => (ms<=T_OBS_END) ? interpTrack(OBS,ms) : interpTrack(FCST[followKey].pts,ms);
+
+  function setFollow(key){
+    followKey=key;
+    const f=FCST[key];
+    T1 = Math.max(P(f.pts[f.pts.length-1].t), T_OBS_END);
+    N = Math.round((T1-START)/STEP);
+    slider.max=N;
+    trail.setStyle({color:f.color});
+    windCircle.setStyle({color:f.color, fillColor:f.color});
+    document.querySelectorAll('.fchip').forEach(el=>el.classList.toggle('sel', el.dataset.key===key));
+    if(idx>N) idx=N;
+    slider.value=idx; frame(idx);
+  }
+  function frame(i){
+    const ms = START + i*STEP;
+    const isObs = ms <= T_OBS_END;
+    const f = FCST[followKey];
+    const p = posAt(ms);
+    tyMarker.setLatLng([p.lat,p.lon]);
+    windCircle.setLatLng([p.lat,p.lon]).setRadius(p.r7*1000);
+    const pts=[];
+    for(let k=0;k<=i;k+=2) { const q=posAt(START+k*STEP); pts.push([q.lat,q.lon]); }
+    trail.setLatLngs(pts);
+    const [cn,cc]=catName(p.wind);
+    statusLine.innerHTML =
+      `<b style="color:${cc}">${cn}</b>｜風速約 <b>${p.wind}</b> km/h`+
+      `｜<span style="color:${f.color}">跟隨 ${f.name}${f.approx?'（示意）':''}</span>`+
+      `<span id="modeTag" class="${isObs?'obsTag':'fcTag'}">${isObs?'觀測':'預測'}</span>`;
+    timeLabel.textContent = fmtTW(ms) + (isObs?'':'（未來預測，實際路徑可能不同）');
+  }
+  function tick(){ idx+=1; if(idx>N){idx=N; stop();} slider.value=idx; frame(idx); }
+  function start(){ playing=true; playBtn.textContent='❚❚'; timer=setInterval(tick, 120/speed); }
+  function stop(){ playing=false; playBtn.textContent='▶'; clearInterval(timer); }
+
+  playBtn.onclick=()=>{ if(playing) stop(); else { if(idx>=N) idx=0; start(); } };
+  speedBtn.onclick=()=>{ speed=speed===1?2:(speed===2?4:1); speedBtn.textContent=speed+'x';
+    if(playing){ clearInterval(timer); timer=setInterval(tick, 120/speed);} };
+  slider.oninput=e=>{ idx=+e.target.value; frame(idx); };
+
+  const followRow=document.getElementById('followRow');
+  for (const [key,f] of Object.entries(FCST)){
+    const c=document.createElement('div');
+    c.className='fchip'; c.dataset.key=key;
+    c.style.borderBottom=`3px solid ${f.color}`;
+    c.textContent=f.name;
+    c.onclick=()=>{ idx=0; setFollow(key); if(!playing) start(); };
+    followRow.appendChild(c);
+  }
+  setFollow('jtwc');
+  setTimeout(()=>{ if(!playing) start(); }, 800);
 }
 
-let idx=0, playing=false, speed=1, timer=null;
-const playBtn=document.getElementById('playBtn');
-const speedBtn=document.getElementById('speedBtn');
-
-function tick(){
-  idx += 1;
-  if (idx>N){ idx=N; stop(); }
-  slider.value=idx; frame(idx);
-}
-function start(){ playing=true; playBtn.textContent='❚❚';
-  timer=setInterval(tick, 120/speed); }
-function stop(){ playing=false; playBtn.textContent='▶';
-  clearInterval(timer); }
-
-playBtn.onclick=()=>{ if(playing) stop(); else { if(idx>=N) idx=0; start(); } };
-speedBtn.onclick=()=>{ speed = speed===1?2:(speed===2?4:1);
-  speedBtn.textContent=speed+'x';
-  if(playing){ clearInterval(timer); timer=setInterval(tick, 120/speed);} };
-slider.oninput=e=>{ idx=+e.target.value; frame(idx); };
-
-// 「動畫跟隨」選擇列
-const followRow = document.getElementById('followRow');
-for (const [key,f] of Object.entries(FCST)){
-  const c = document.createElement('div');
-  c.className='fchip'; c.dataset.key=key;
-  c.style.borderBottom=`3px solid ${f.color}`;
-  c.textContent=f.name.replace(/^..\s/,'');   // 顯示簡稱
-  c.textContent=f.name;
-  c.onclick=()=>{ idx=0; setFollow(key); if(!playing) start(); };
-  followRow.appendChild(c);
-}
-
-setFollow('jtwc');
-setTimeout(()=>{ if(!playing) start(); }, 800);
+// 讀取 data.json（加時間戳避免快取），失敗則用內建備份
+fetch('data.json?t=' + Date.now())
+  .then(r => { if(!r.ok) throw new Error(r.status); return r.json(); })
+  .then(d => init(d))
+  .catch(() => init(FALLBACK));
 </script>
 </body>
 </html>
